@@ -1,29 +1,36 @@
-# main.py
 from fastapi import FastAPI, File, UploadFile
-from fastapi.responses import JSONResponse
-from tensorflow.keras.models import load_model
+from fastapi.middleware.cors import CORSMiddleware
 import numpy as np
-import cv2
-import uvicorn
+from PIL import Image
+import tensorflow as tf
+import io
 
 app = FastAPI()
 
-# Load your model
-model = load_model("skin_cancer_cnn_model.h5")
+# CORS for frontend access
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-# Define a function to preprocess the image
-def preprocess_image(image_bytes):
-    nparr = np.frombuffer(image_bytes, np.uint8)
-    img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-    img = cv2.resize(img, (64, 64))
-    img = img / 255.0
-    img = np.expand_dims(img, axis=0)
-    return img
+# Load model at startup
+model = tf.keras.models.load_model("skin_cancer_cnn_model.h5")
+
+@app.get("/")
+def root():
+    return {"message": "Skin Cancer Detection API is live!"}
 
 @app.post("/predict")
 async def predict(file: UploadFile = File(...)):
-    image_bytes = await file.read()
-    img = preprocess_image(image_bytes)
-    prediction = model.predict(img)
-    result = "Cancer Detected" if prediction[0][0] > 0.5 else "No Cancer"
-    return JSONResponse({"prediction": result})
+    contents = await file.read()
+    image = Image.open(io.BytesIO(contents)).resize((224, 224))
+    img_array = np.array(image) / 255.0
+    img_array = np.expand_dims(img_array, axis=0)
+
+    prediction = model.predict(img_array)
+    result = "Malignant" if prediction[0][0] > 0.5 else "Benign"
+
+    return {"result": result}
